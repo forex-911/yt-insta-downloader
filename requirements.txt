@@ -1,2 +1,6 @@
-yt-dlp>=2024.10.7
-tqdm>=4.66.0
+yt-dlp
+spotipy
+pydub
+ffmpeg-python
+tqdm
+instaloader
