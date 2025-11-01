@@ -1,10 +1,12 @@
 import os
 import yt_dlp
 import time
+import subprocess
+import json
 from tqdm import tqdm
 
 # ---------------------------------------
-# 🔹 Utility: Generate unique file names
+# 🔹 Utility: Safe filename
 # ---------------------------------------
 def safe_filename(path):
     base, ext = os.path.splitext(path)
@@ -36,25 +38,22 @@ def progress_hook(tq):
 
 
 # ---------------------------------------
-# 🔹 Main download logic
+# 🔹 YouTube / Instagram Downloader
 # ---------------------------------------
-def download_video(url, output_format="mp4", quality="best", retries=3):
-    base_download_path = os.path.join(os.path.expanduser("~"), "Downloads")
-    audio_path = os.path.join(base_download_path, "yt_audio_dw")
-    video_path = os.path.join(base_download_path, "yt_video_dw")
+def download_ytdlp(url, output_format="mp4", quality="best", retries=3):
+    user_home = os.path.expanduser("~")
+    base_download_path = os.path.join(user_home, "Downloads")
 
-    os.makedirs(audio_path, exist_ok=True)
-    os.makedirs(video_path, exist_ok=True)
-
-    output_dir = audio_path if output_format in ['mp3', 'wav'] else video_path
-
-    # Auto-handle Instagram links
+    # Select folder dynamically
     if "instagram.com" in url:
-        output_format = "mp4"
-        quality = "best"
-        print("📸 Detected Instagram link — using MP4 best quality.\n")
+        output_dir = os.path.join(base_download_path, "al-dl-insta")
+    elif output_format in ['mp3', 'wav']:
+        output_dir = os.path.join(base_download_path, "al-dl-audio")
+    else:
+        output_dir = os.path.join(base_download_path, "al-dl-video")
 
-    # Get metadata (safe title)
+    os.makedirs(output_dir, exist_ok=True)
+
     try:
         with yt_dlp.YoutubeDL({'quiet': True, 'skip_download': True, 'no_warnings': True}) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -62,24 +61,15 @@ def download_video(url, output_format="mp4", quality="best", retries=3):
     except Exception:
         title = "video"
 
-    # Fixed output template - use actual format extension
-    if output_format in ['mp3', 'wav']:
-        output_template = os.path.join(output_dir, f"{title}.%(ext)s")
-    else:
-        # For video, explicitly set the extension to mp4
-        output_template = os.path.join(output_dir, f"{title}.{output_format}")
-
-    # Handle duplicates before downloading
+    output_template = os.path.join(output_dir, f"{title}.%(ext)s")
     possible_file = os.path.join(output_dir, f"{title}.{output_format}")
+
     if os.path.exists(possible_file):
         choice = input("⚠️ File exists! Redownload as new copy? (y/n): ").strip().lower()
         if choice == "y":
             possible_file = safe_filename(possible_file)
             title = os.path.splitext(os.path.basename(possible_file))[0]
-            if output_format in ['mp3', 'wav']:
-                output_template = os.path.join(output_dir, f"{title}.%(ext)s")
-            else:
-                output_template = os.path.join(output_dir, f"{title}.{output_format}")
+            output_template = os.path.join(output_dir, f"{title}.%(ext)s")
             print(f"📁 New copy will be saved as: {os.path.basename(possible_file)}")
         else:
             print("🚫 Skipped download.")
@@ -88,7 +78,6 @@ def download_video(url, output_format="mp4", quality="best", retries=3):
     print(f"\n📥 Downloading: {title}")
     print(f"💾 Saving to: {output_dir}\n")
 
-    # yt-dlp config with proper format selection and merging
     ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
@@ -97,14 +86,11 @@ def download_video(url, output_format="mp4", quality="best", retries=3):
     }
 
     if output_format == 'mp4':
-        # Force MP4 container and merge audio+video
-        ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best'
+        ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best'
         ydl_opts['merge_output_format'] = 'mp4'
-        ydl_opts['postprocessors'] = [{
-            'key': 'FFmpegVideoConvertor',
-            'preferedformat': 'mp4',
-        }]
+        ydl_opts['postprocessors'] = [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}]
         ydl_opts['postprocessor_args'] = ['-c:v', 'copy', '-c:a', 'aac', '-movflags', 'faststart']
+
     elif output_format in ['mp3', 'wav']:
         ydl_opts['format'] = 'bestaudio/best'
         ydl_opts['postprocessors'] = [{
@@ -113,7 +99,6 @@ def download_video(url, output_format="mp4", quality="best", retries=3):
             'preferredquality': '192',
         }]
 
-    # Retry mechanism
     for attempt in range(1, retries + 1):
         try:
             with tqdm(total=0, unit='B', unit_scale=True, desc=f'Attempt {attempt}/{retries}', dynamic_ncols=True) as tq:
@@ -132,21 +117,74 @@ def download_video(url, output_format="mp4", quality="best", retries=3):
 
 
 # ---------------------------------------
-# 🔹 Entry point for package
+# 🔹 Spotify Downloader (via spotdl)
+# ---------------------------------------
+def download_spotify(url, quality="high"):
+    user_home = os.path.expanduser("~")
+    base_dir = os.path.join(user_home, "Downloads", "al-dl-spotify")
+    os.makedirs(base_dir, exist_ok=True)
+
+    print("\n🎵 Fetching Spotify data...")
+
+    # Check spotdl presence
+    try:
+        subprocess.run(["spotdl", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except FileNotFoundError:
+        print("⚠️ spotdl not found. Installing automatically...")
+        subprocess.run(["pip", "install", "spotdl"], check=True)
+
+    # Detect playlist
+    playlist_name = None
+    if "playlist" in url:
+        try:
+            meta = subprocess.run(["spotdl", "list", "--url", url, "--json"], capture_output=True, text=True)
+            data = json.loads(meta.stdout)
+            if isinstance(data, list) and len(data) > 0 and 'name' in data[0]:
+                playlist_name = data[0]['name']
+        except Exception:
+            playlist_name = "playlist"
+
+    # Output directory
+    output_dir = os.path.join(base_dir, playlist_name) if playlist_name else base_dir
+    os.makedirs(output_dir, exist_ok=True)
+
+    print(f"💾 Downloading to: {output_dir}\n")
+    bitrate = "320k" if quality == "high" else "128k"
+
+    cmd = ["spotdl", url, "--output", output_dir, "--bitrate", bitrate]
+    try:
+        subprocess.run(cmd, check=True)
+        print(f"\n✅ Spotify download complete! Files saved in: {output_dir}\n")
+    except Exception as e:
+        print(f"❌ Spotify download failed: {e}\n")
+
+
+# ---------------------------------------
+# 🔹 Entry Point
 # ---------------------------------------
 if __name__ == "__main__":
-    url = input("Enter video URL: ").strip()
-    format_input = input("Enter format (mp4/mp3/wav): ").strip().lower()
-    
-    # Map numeric input to formats
-    format_map = {'1': 'mp4', '2': 'mp3', '3': 'wav'}
-    output_format = format_map.get(format_input, format_input)
-    
-    # Validate format
-    if output_format not in ['mp4', 'mp3', 'wav']:
-        print(f"⚠️ Invalid format '{format_input}'. Defaulting to mp4.")
-        output_format = 'mp4'
-    
-    quality = input("Enter quality (best/720p/1080p): ").strip().lower()
+    url = input("Enter URL: ").strip()
 
-    download_video(url, output_format, quality)
+    if "youtube.com" in url or "youtu.be" in url:
+        print("\n▶️ Detected: YouTube")
+        fmt = input("Enter format (mp4/mp3/wav): ").strip().lower()
+        if fmt not in ['mp4', 'mp3', 'wav']:
+            print("⚠️ Invalid format. Defaulting to mp4.")
+            fmt = 'mp4'
+        quality = input("Enter quality (best/720p/1080p): ").strip().lower()
+        download_ytdlp(url, output_format=fmt, quality=quality)
+
+    elif "instagram.com" in url:
+        print("\n📸 Detected: Instagram — using best quality MP4.")
+        download_ytdlp(url, output_format="mp4", quality="best")
+
+    elif "spotify.com" in url:
+        print("\n🎧 Detected: Spotify")
+        quality = input("Enter audio quality (high/low): ").strip().lower()
+        if quality not in ['high', 'low']:
+            print("⚠️ Invalid quality. Defaulting to high.")
+            quality = 'high'
+        download_spotify(url, quality)
+
+    else:
+        print("❌ Unsupported URL. Only YouTube, Instagram, and Spotify are supported.")
