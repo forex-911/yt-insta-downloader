@@ -10,8 +10,8 @@ It auto-detects the platform and handles quality, format, and folder creation au
 
 ### 1. Clone this repository
 ```bash
-git clone https://github.com/forex-911/yt-insta-downloader.git
-cd yt-insta-downloader
+git clone https://github.com/forex-911/yt-insta-spotify-downloader.git
+cd yt-insta-spotify-downloader
 ```
 
 ### 2. Install dependencies
@@ -123,4 +123,5 @@ For questions or support, please open an issue on GitHub.
 ---
 
 If you find this tool useful, please star the repository!
+
 
