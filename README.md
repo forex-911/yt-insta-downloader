@@ -45,7 +45,7 @@ pip install -r requirements.txt
 
 ### Run the script:
 ```bash
-python yt-dl.py
+python at-dl.py
 ```
 
 ### Follow the prompts:
@@ -123,3 +123,4 @@ For questions or support, please open an issue on GitHub.
 ---
 
 If you find this tool useful, please star the repository!
+
