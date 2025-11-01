@@ -38,22 +38,23 @@ def progress_hook(tq):
 
 
 # ---------------------------------------
-# 🔹 YouTube / Instagram Downloader
+# 🔹 YouTube / Instagram Reel Downloader
 # ---------------------------------------
 def download_ytdlp(url, output_format="mp4", quality="best", retries=3):
     user_home = os.path.expanduser("~")
     base_download_path = os.path.join(user_home, "Downloads")
 
-    # Select folder dynamically
+    # Folder logic
     if "instagram.com" in url:
-        output_dir = os.path.join(base_download_path, "al-dl-insta")
+        output_dir = os.path.join(base_download_path, "yt-dl-insta")
     elif output_format in ['mp3', 'wav']:
-        output_dir = os.path.join(base_download_path, "al-dl-audio")
+        output_dir = os.path.join(base_download_path, "yt-dl-audio")
     else:
-        output_dir = os.path.join(base_download_path, "al-dl-video")
+        output_dir = os.path.join(base_download_path, "yt-dl-video")
 
     os.makedirs(output_dir, exist_ok=True)
 
+    # Try to get title
     try:
         with yt_dlp.YoutubeDL({'quiet': True, 'skip_download': True, 'no_warnings': True}) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -64,6 +65,7 @@ def download_ytdlp(url, output_format="mp4", quality="best", retries=3):
     output_template = os.path.join(output_dir, f"{title}.%(ext)s")
     possible_file = os.path.join(output_dir, f"{title}.{output_format}")
 
+    # Avoid overwriting existing
     if os.path.exists(possible_file):
         choice = input("⚠️ File exists! Redownload as new copy? (y/n): ").strip().lower()
         if choice == "y":
@@ -121,12 +123,12 @@ def download_ytdlp(url, output_format="mp4", quality="best", retries=3):
 # ---------------------------------------
 def download_spotify(url, quality="high"):
     user_home = os.path.expanduser("~")
-    base_dir = os.path.join(user_home, "Downloads", "al-dl-spotify")
+    base_dir = os.path.join(user_home, "Downloads", "yt-dl-spotify")
     os.makedirs(base_dir, exist_ok=True)
 
     print("\n🎵 Fetching Spotify data...")
 
-    # Check spotdl presence
+    # Ensure spotdl installed
     try:
         subprocess.run(["spotdl", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except FileNotFoundError:
@@ -144,7 +146,7 @@ def download_spotify(url, quality="high"):
         except Exception:
             playlist_name = "playlist"
 
-    # Output directory
+    # Create folder
     output_dir = os.path.join(base_dir, playlist_name) if playlist_name else base_dir
     os.makedirs(output_dir, exist_ok=True)
 
@@ -175,8 +177,34 @@ if __name__ == "__main__":
         download_ytdlp(url, output_format=fmt, quality=quality)
 
     elif "instagram.com" in url:
-        print("\n📸 Detected: Instagram — using best quality MP4.")
-        download_ytdlp(url, output_format="mp4", quality="best")
+        print("\n📸 Detected: Instagram")
+        print("🔍 Checking type (reel/post)...")
+
+        if "/reel/" in url:
+            print("🎬 Reel detected — downloading best quality MP4.")
+            download_ytdlp(url, output_format="mp4", quality="best")
+
+        else:
+            print("🖼️ Post detected — downloading best quality image.")
+            user_home = os.path.expanduser("~")
+            output_dir = os.path.join(user_home, "Downloads", "yt-dl-insta")
+            os.makedirs(output_dir, exist_ok=True)
+
+            try:
+                import instaloader
+            except ImportError:
+                print("⚠️ Instaloader not found. Installing automatically...")
+                subprocess.run(["pip", "install", "instaloader"], check=True)
+                import instaloader
+
+            loader = instaloader.Instaloader(dirname_pattern=output_dir, download_videos=False, download_video_thumbnails=False)
+            try:
+                shortcode = url.split("/p/")[-1].split("/")[0] if "/p/" in url else url.split("/")[-2]
+                print(f"📥 Downloading post: {shortcode}")
+                loader.download_post(instaloader.Post.from_shortcode(loader.context, shortcode), target=output_dir)
+                print(f"\n✅ Instagram post downloaded successfully to: {output_dir}\n")
+            except Exception as e:
+                print(f"❌ Failed to download Instagram post: {e}")
 
     elif "spotify.com" in url:
         print("\n🎧 Detected: Spotify")
